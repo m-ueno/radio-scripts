@@ -1,10 +1,13 @@
 #!env ruby
+# -*- coding:utf-8 -*-
 require 'pp'
 require 'open-uri'
 require 'thread'
 require 'date'
 require 'fileutils'
 require 'net/http'
+
+p @downpath = '/home/share/podcast/anitama'
 
 def get_radio2(radio, date, flag=false)
   pp [ filename = @downpath + '/' + "anitama_#{radio}_#{date}.flv",
@@ -37,40 +40,53 @@ end
 def split_audio(path)
   puts "splitflv: #{path}"
   begin
-    `ffmpeg -v warning -n -i #{path} -acodec copy #{path}.mp3`
+    `yes "n"| ffmpeg -v warning -i #{path} -acodec copy #{path}.mp3`
   rescue
     puts "error: #{$!} -- split audio"
   end
 end
 
+def embed_metadata(path)
+  program, date = path.scan(/anitama_([a-z]+)_(\d+)/).flatten!
+
+  # artwork
+  p [:embed, program]
+  artworks = Dir.glob("images/#{program}*")
+  art = artworks[rand artworks.size]
+  `eyeD3 --remove-image #{path}`
+  `eyeD3 --to-v2.4 --add-image #{art}:FRONT_COVER #{path}`
+
+  # tags
+  metadata = {
+    "maejo" => {title: "神戸前向女学院"},
+    "masakano" => {title: "集まれ！昌鹿野編集部"},
+    "momonoki" => {title: "モモノキファイブ"}
+  }
+  p data=metadata[program]
+  `eyeD3 --v2 --to-v2.4 --set-encoding=utf8 --title="#{data[:title]}-#{date}" #{path}`
+end
+
+@d = Date.today
+@dow = @d.cwday
+def get_onair_day(dow_onair, dow_up)
+  # return right onair day from day_of_weeks
+  onair_day = @d - @d.cwday + dow_onair
+
+  onair_day -= 7 if dow_onair > dow_up
+  onair_day -= 7 if @dow<dow_up or (@dow==dow_up and Time.now.hour < 17)
+
+  return onair_day.strftime("%y%m%d")
+end
+
 def main
-  if `hostname`.chomp == "arch-laptop"
-    p @downpath = "/srv/http/podcast/anitama"
-  elsif RUBY_PLATFORM =~ /linux/
-    p @downpath = File::expand_path("~/Archives/radio/anitama")
-  else
-    p @downpath = "D:/Desktop"
-  end
-
-  # anitama.com/radio : update in every Wednesday?
-  # thus, you can download BEFORE the last Wednesday
-  d = Date.today
-
-  if d.cwday < 3
-    last_Wednesday = d - d.cwday - 4
-  else
-    last_Wednesday = d - d.cwday + 3
-  end
-
-  day_masakano = (last_Wednesday - 3).strftime("%y%m%d") # Sun
-  day_momonoki = (last_Wednesday - 6).strftime("%y%m%d") # Thu
-  day_moja     = (last_Wednesday - 6).strftime("%y%m%d") # Thu
-  day_maejo    = (last_Wednesday - 5).strftime("%y%m%d") # Fri
+  day_maejo    = get_onair_day(5, 1)
+  day_masakano = get_onair_day(0, 2)
+  day_momonoki = get_onair_day(4, 1)
 
   ret = [
     get_radio2("masakano" , day_masakano),
     get_radio2("momonoki" , day_momonoki),
-    get_radio2("moja"     , day_moja),
+#    get_radio2("moja"     , day_moja),
     get_radio2("maejo"    , day_maejo)
   ]
 
@@ -79,6 +95,7 @@ def main
   ret.each do |path|
     next unless path
     split_audio(path)
+    embed_metadata("#{path}.mp3")
   end
 end
 
